@@ -80,6 +80,14 @@ func cmdDD(args []string) {
   if err := pipeline.Run(ctx, order); err != nil {
     fatalErr(err)
   }
+
+  // Forcibly close resources to ensure cleanup
+  if ctx.R != nil {
+    _ = ctx.R.Close()
+  }
+  if ctx.W != nil {
+    _ = ctx.W.Close()
+  }
 }
 
 func fatal(msg string) {

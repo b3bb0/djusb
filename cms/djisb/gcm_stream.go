@@ -37,7 +37,12 @@ func (s *gcmWriter) Write(p []byte) (int, error) {
   return len(p), nil
 }
 
-func (s *gcmWriter) Close() error { return nil }
+func (s *gcmWriter) Close() error {
+  if closer, ok := s.w.(io.Closer); ok {
+    return closer.Close()
+  }
+  return nil
+}
 
 func (s *gcmWriter) nextNonce() []byte {
   var n [12]byte
@@ -47,14 +52,14 @@ func (s *gcmWriter) nextNonce() []byte {
 }
 
 type gcmReader struct {
-  r       io.Reader
+  r       io.ReadCloser
   gcm     cipher.AEAD
   base    [12]byte
   counter uint64
   buf     []byte
 }
 
-func NewGCMReader(r io.Reader, gcm cipher.AEAD, nonce []byte) io.Reader {
+func NewGCMReader(r io.ReadCloser, gcm cipher.AEAD, nonce []byte) io.ReadCloser {
   var b [12]byte
   copy(b[:], nonce)
   return &gcmReader{r: r, gcm: gcm, base: b}
@@ -76,6 +81,10 @@ func (s *gcmReader) Read(p []byte) (int, error) {
   n := copy(p, s.buf)
   s.buf = s.buf[n:]
   return n, nil
+}
+
+func (s *gcmReader) Close() error {
+  return s.r.Close()
 }
 
 func (s *gcmReader) nextNonce() []byte {
