@@ -3,7 +3,6 @@ package plugins
 import (
   "djusb_clean/internal/pipeline"
   "fmt"
-  "io"
   "os"
   "os/exec"
   "runtime"
@@ -39,7 +38,7 @@ func (DiskIO) Apply(ctx *pipeline.Context) error {
   w, err := os.OpenFile(ctx.OfPath, os.O_CREATE|os.O_TRUNC|os.O_WRONLY, 0o600)
   if err != nil { _ = r.Close(); return err }
 
-  ctx.R = io.NopCloser(r)
+  ctx.R = r
   ctx.W = w
   return nil
 }

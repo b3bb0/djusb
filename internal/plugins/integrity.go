@@ -74,7 +74,9 @@ type teeReadCloser struct {
 func (t *teeReadCloser) Read(p []byte) (int, error) {
   n, err := t.r.Read(p)
   if n > 0 {
-    _, _ = t.tee.Write(p[:n])
+    if _, teeErr := t.tee.Write(p[:n]); teeErr != nil {
+      return n, teeErr
+    }
   }
   return n, err
 }

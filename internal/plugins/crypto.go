@@ -1,7 +1,6 @@
 package plugins
 
 import (
-  "io"
   "crypto/aes"
   "crypto/cipher"
   "crypto/rand"
@@ -55,6 +54,6 @@ func (Crypto) Apply(ctx *pipeline.Context) error {
     ctx.W = NewGCMWriter(ctx.W, gcm, nonce)
     return nil
   }
-  ctx.R = io.NopCloser(NewGCMReader(ctx.R, gcm, nonce))
+  ctx.R = NewGCMReader(ctx.R, gcm, nonce)
   return nil
 }

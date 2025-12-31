@@ -1,33 +1,105 @@
-# HARDWARE INSTABLE EXPERIMENTAL
+# djusb — USB-to-Venue client (clean rewrite)
 
-<img width="1206" height="779" alt="image" src="https://github.com/user-attachments/assets/65079edf-0de6-4389-b194-14672d4979f4" />
-PS: missing kill switchs + motors not routed yet
+This repo implements the **exact process** we agreed on:
 
-## PIN MAPPING
-*Left corner (C)*
-- HX711 S1L: PB0=DT, PB1=SCK
-- HX711 S2L: PB2=DT, PB3=SCK
-- Motor-L: PD6=DIR_L, PD5=PWM_L (OC0B)
-- Limits-L (active-low): PC0=TOP_L, PC1=BOT_L
+- There is **one pipeline**.
+- The UI chooses **backup** or **restore**.
+- The UI changes **only the order of the same steps** (plugins).
+- The **JSON file is the controller** (and the only source of truth).
+- **Each step owns one JSON key with the same name as the step.**
+- Steps never guess. Steps only:
+  - **if the JSON key exists → obey / verify**
+  - **if the JSON key does not exist → set it (seeded by the worker/UI) and write JSON**
 
-*Right corner (D)*
-- HX711 S1R: PD2=DT, PD7=SCK
-- HX711 S2R: PB4=DT, PB5=SCK
-- Motor-R: PD4=DIR_R, PD3=PWM_R (OC2B)
-- Limits-R (active-low): PC2=TOP_R, PC3=BOT_R
+No legacy code is reused here.
 
-## Registering abd regularions
-- .equ THRESH    = 6000     ; deadband in counts for |diff|
-- .equ KP_SHIFT  = 11       ; PWM ~ |diff| >> KP_SHIFT
-- .equ PWM_MIN   = 60
-- .equ PWM_MAX   = 200
-- .equ AVG_NLOG2 = 2        ; 2 -> average 4 samples (2^2)
+---
+
+## The 6 plugins (steps)
+
+Plugin names are also the JSON keys:
+
+1. `diskio`  
+2. `meta`  
+3. `compress`  
+4. `crypto`  
+5. `integrity`  
+6. `copy`  
+
+### What "controller JSON" means (examples)
+
+`compress`:
+- If `compress.enabled` exists:
+  - `true` → compress (backup) / decompress (restore)
+  - `false` → passthrough
+- If it does not exist:
+  - worker seeds it (`--compress=true|false`)
+  - plugin writes it into JSON
+
+`integrity`:
+- If `integrity.sha256` exists → verify it at the end
+- If it does not exist → set it at the end and write JSON
+
+**Same rule for every plugin**: *exists → verify/obey; missing → set/write.*
+
+---
+
+## UI only changes the order
+
+We do **not** branch logic inside plugins for backup vs restore.
+
+The UI picks the order:
+
+### Backup (disk -> file)
+Order:
+```
+diskio -> meta -> compress -> crypto -> integrity -> copy
+```
+
+### Restore (file -> disk)
+Order:
+```
+diskio -> meta -> crypto -> compress -> integrity -> copy
+```
+
+(Notice: we are not forced to reverse; we just reorder the same plugins.)
+
+---
+
+## CLI
+
+This repo ships a minimal CLI to drive the pipeline:
+
+### Backup (disk -> file)
+```bash
+djusb dd --mode=backup --if=/dev/disk2 --of=./backup.bin --json=./backup.json \
+  --compress=true --filepass="FILE_PASS"
+```
+
+### Restore (file -> disk)
+```bash
+djusb dd --mode=restore --if=./backup.bin --of=/dev/disk2 --json=./backup.json \
+  --filepass="FILE_PASS"
+```
+
+Notes:
+- `--compress` is only a **seed** when JSON does not exist.
+- When the JSON exists, the pipeline **obeys JSON**, always.
+
+---
 
 ## Build
-```
-avr-gcc -mmcu=atmega328p -x assembler-with-cpp -o canopy_avg.elf canopy_avg.S
 
-avr-objcopy -O ihex -R .eeprom canopy_avg.elf canopy_avg.hex
-
-avrdude -c usbasp -p m328p -U flash:w:canopy_avg.hex
+```bash
+go build -o djusb ./cmd/djusb
 ```
+
+---
+
+## What’s intentionally NOT here (yet)
+
+- rclone/rsync implementation (belongs to `transfer`)
+- full Windows volume lock FSCTL (belongs to `diskio`)
+- UI integration (UI just chooses the order + seeds JSON)
+
+Remote transfer (rclone/rsync) belongs inside `diskio` endpoint open or `copy` (spawning rclone), without changing other plugins.

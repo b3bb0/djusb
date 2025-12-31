@@ -1,0 +1,16 @@
+# Binaries
+djusb
+*.exe
+*.dll
+*.so
+*.dylib
+
+# Test binary
+*.test
+
+# Output of the go coverage tool
+*.out
+
+# Build artifacts
+/dist/
+/build/
