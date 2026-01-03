@@ -88,7 +88,7 @@ jobs:
 
             const status = cfg.sections.map(s => {
               const lines = s.questions.map(q => {
-                const v = answers?[q.key];
+                const v = answers[q.key];
                 if (!v) return '- `' + q.key + '`: ❌';
                 if (String(v).toUpperCase() === "__SKIP__")
                   return '- `' + q.key + '`: ⏭️ skipped';
