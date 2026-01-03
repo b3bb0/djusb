@@ -1,29 +1,42 @@
 {
-  "label": "AutoUI",
-  "questions": [
+  "sections": [
     {
-      "key": "product_name",
-      "ask": "What is the product name/brand for this? (e.g., \"DJ USB Backup\")\nReply like: `product_name: ...`"
+      "id": "product_marketing",
+      "title": "Product & Marketing",
+      "intro": "Define positioning and page goal.",
+      "questions": [
+        { "key": "product_name", "ask": "Product name?", "options": [] },
+        { "key": "tagline", "ask": "One-line tagline?", "options": [] },
+        { "key": "offer_type", "ask": "Offer type?", "options": ["SaaS", "Marketplace", "Agency", "Internal Tool"] },
+        { "key": "primary_cta", "ask": "Primary CTA text?", "options": ["Get started", "Request demo", "Join waitlist"] }
+      ]
     },
     {
-      "key": "offer_type",
-      "ask": "Is this a **service**, an **app**, or **hybrid**?\nReply like: `offer_type: service|app|hybrid`"
+      "id": "graphic_style",
+      "title": "Graphic & Style (AntV)",
+      "intro": "Visual language and interaction density.",
+      "links": [
+        "https://antv.antgroup.com/specification/language/basic",
+        "https://antv.antgroup.com/specification/language/interact"
+      ],
+      "questions": [
+        { "key": "brand_tone", "ask": "Visual tone?", "options": ["Minimal", "Bold", "Playful", "Serious"] },
+        { "key": "chart_style", "ask": "Chart style?", "options": ["Clean grid", "Soft minimal", "High contrast"] }
+      ]
     },
     {
-      "key": "delivery_method",
-      "ask": "How does the customer provide the library/USB?\nOptions: upload | local plug-in | mail-in\nReply like: `delivery_method: upload`"
-    },
-    {
-      "key": "platforms",
-      "ask": "Which platforms do you support **today**?\nOptions: rekordbox, engine, serato\nReply like: `platforms: rekordbox, engine`"
-    },
-    {
-      "key": "pricing_model",
-      "ask": "Pricing model?\nOptions: subscription | one-time | emergency add-on\nReply like: `pricing_model: subscription`"
-    },
-    {
-      "key": "primary_cta",
-      "ask": "Primary CTA button text?\nExamples: \"Join Waitlist\" / \"Get Backup\" / \"Book a Backup\"\nReply like: `primary_cta: Join Waitlist`"
+      "id": "tech_interaction",
+      "title": "Tech & Interaction",
+      "intro": "Tech stack and interactive patterns.",
+      "links": [
+        "https://antv.antgroup.com/specification/strategy/modal",
+        "https://antv.antgroup.com/specification/language/media"
+      ],
+      "questions": [
+        { "key": "framework", "ask": "Vue version?", "options": ["Vue 3"] },
+        { "key": "chart_lib", "ask": "Chart lib?", "options": ["@antv/g2"] },
+        { "key": "modal_usage", "ask": "Modal usage?", "options": ["None", "Details only", "Primary CTA"] }
+      ]
     }
   ]
 }
