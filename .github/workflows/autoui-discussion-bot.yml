@@ -153,10 +153,9 @@ jobs:
           envsubst < .github/templates/autoui/StatsChart.vue.template > coming-soon/src/components/StatsChart.vue
 
           cat > coming-soon/src/App.vue <<'EOF'
-import Landing from "./Landing.vue";
-export default Landing;
-EOF
-
+          import Landing from "./Landing.vue";
+          export default Landing;
+          EOF
           cd coming-soon
           if ! grep -q '"@antv/g2"' package.json; then
             npm install @antv/g2
@@ -176,15 +175,12 @@ EOF
         with:
           script: |
             const body =
-`AutoUI complete ✅
-
-Generated:
-- coming-soon/src/Landing.vue
-- coming-soon/src/components/StatsChart.vue
-- updated App.vue
-
-Pages deploy will publish on next run.`;
-
+            `AutoUI complete ✅
+            Generated:
+            - coming-soon/src/Landing.vue
+            - coming-soon/src/components/StatsChart.vue
+            - updated App.vue
+            Pages deploy will publish on next run.`;
             await github.graphql(
               `mutation($id: ID!, $body: String!) {
                 addDiscussionComment(input: { discussionId: $id, body: $body }) {
