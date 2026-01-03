@@ -1,0 +1,252 @@
+name: AutoUI Preview Bot (Vue + AntV) — /beta/d-xxxx
+
+on:
+  discussion:
+    types: [created, labeled, edited]
+  discussion_comment:
+    types: [created, edited]
+
+permissions:
+  contents: write
+  discussions: write
+
+jobs:
+  autoui_preview:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Verify templates exist
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -f .github/templates/autoui/questions.json
+          test -f .github/templates/autoui/reply.md
+          test -f .github/templates/autoui/Landing.vue.template
+          test -f .github/templates/autoui/StatsChart.vue.template
+          echo "Templates OK."
+
+      - name: Parse discussion + decide next question
+        id: decide
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const fs = require("fs");
+
+            const cfg = JSON.parse(fs.readFileSync(".github/templates/autoui/questions.json", "utf8"));
+            const discussionId = context.payload.discussion.node_id;
+            const discussionNumber = context.payload.discussion.number;
+
+            const q = `
+            query($id: ID!) {
+              node(id: $id) {
+                ... on Discussion {
+                  body
+                  labels(first: 50) { nodes { name } }
+                  comments(first: 100) { nodes { body author { login } } }
+                }
+              }
+            }`;
+
+            const data = await github.graphql(q, { id: discussionId });
+            const node = data.node;
+
+            const labels = (node.labels?.nodes || []).map(l => l.name);
+            const hasLabel = labels.includes("AutoUI");
+
+            core.setOutput("has_label", hasLabel ? "true" : "false");
+            core.setOutput("discussion_number", String(discussionNumber));
+
+            if (!hasLabel) {
+              core.setOutput("complete", "false");
+              core.setOutput("next_question", "");
+              core.setOutput("status_block", "AutoUI label missing.");
+              return;
+            }
+
+            const allQuestions = cfg.sections.flatMap(s => s.questions.map(q => ({ ...q, section: s })));
+
+            const textBlob = [
+              node.body || "",
+              ...(node.comments?.nodes || []).map(c => c.body || "")
+            ].join("\n\n");
+
+            const answers = {};
+            for (const q of allQuestions) {
+              const re = new RegExp(`(?:^|\\n)\\s*${q.key}\\s*(?:=|:)\\s*([^\\n]+)`, "i");
+              const m = textBlob.match(re);
+              if (m && m[1]) answers[q.key] = m[1].trim();
+            }
+
+            const botLogin = "github-actions[bot]";
+            const lastHuman = [...(node.comments?.nodes || [])].reverse().find(c => c.author?.login !== botLogin);
+            const wantsSkip = lastHuman ? /(^|\\s)(skip|next)(\\s|$)/i.test(lastHuman.body || "") : false;
+
+            const nextQ = allQuestions.find(q => !answers[q.key]);
+
+            const status = cfg.sections.map(s => {
+              const lines = s.questions.map(q => {
+                const v = answers[q.key];
+                if (!v) return `- \`${q.key}\`: ❌`;
+                if (String(v).toUpperCase() === "__SKIP__") return `- \`${q.key}\`: ⏭️ skipped`;
+                return `- \`${q.key}\`: ✅ ${v}`;
+              });
+              return `### ${s.title}\n${lines.join("\n")}`;
+            }).join("\n\n");
+
+            fs.writeFileSync("/tmp/autoui-answers.json", JSON.stringify(answers, null, 2));
+
+            core.setOutput("complete", nextQ ? "false" : "true");
+            core.setOutput("wants_skip", wantsSkip ? "true" : "false");
+            core.setOutput("pending_key", nextQ?.key || "");
+            core.setOutput("section_id", nextQ?.section?.id || "");
+            core.setOutput("section_title", nextQ?.section?.title || "");
+            core.setOutput("section_intro", nextQ?.section?.intro || "");
+            core.setOutput("section_links", (nextQ?.section?.links || []).map(l => `- ${l}`).join("\n"));
+            core.setOutput("status_block", status);
+
+            if (nextQ) {
+              const opts = (nextQ.options && nextQ.options.length)
+                ? `\n\n**Options:**\n${nextQ.options.map(o => `- ${o}`).join("\n")}`
+                : "";
+              core.setOutput(
+                "next_question",
+                `${nextQ.ask}${opts}\n\nReply with:\n- \`${nextQ.key}=...\`\n- or \`skip\` / \`next\``
+              );
+            } else {
+              core.setOutput("next_question", "");
+            }
+
+      - name: Persist skip marker
+        if: ${{ steps.decide.outputs.has_label == 'true' && steps.decide.outputs.wants_skip == 'true' && steps.decide.outputs.pending_key != '' }}
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const key = "${{ steps.decide.outputs.pending_key }}";
+            const body = `${key}=__SKIP__\n\n<!-- autoui:skip=${key} -->`;
+
+            await github.graphql(
+              `mutation($id: ID!, $body: String!) {
+                addDiscussionComment(input: { discussionId: $id, body: $body }) { comment { id } }
+              }`,
+              { id: context.payload.discussion.node_id, body }
+            );
+
+      - name: Render reply
+        if: ${{ steps.decide.outputs.has_label == 'true' && steps.decide.outputs.complete == 'false' }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          export STATUS_BLOCK="${{ steps.decide.outputs.status_block }}"
+          export NEXT_QUESTION="${{ steps.decide.outputs.next_question }}"
+          export SECTION_TITLE="${{ steps.decide.outputs.section_title }}"
+          export SECTION_INTRO="${{ steps.decide.outputs.section_intro }}"
+          export SECTION_LINKS="${{ steps.decide.outputs.section_links }}"
+          export QUESTION_KEY="${{ steps.decide.outputs.pending_key }}"
+          envsubst < .github/templates/autoui/reply.md > /tmp/autoui-reply.md
+          cat /tmp/autoui-reply.md
+
+      - name: Comment next question
+        if: ${{ steps.decide.outputs.has_label == 'true' && steps.decide.outputs.complete == 'false' }}
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const fs = require("fs");
+            const body = fs.readFileSync("/tmp/autoui-reply.md", "utf8");
+            await github.graphql(
+              `mutation($id: ID!, $body: String!) {
+                addDiscussionComment(input: { discussionId: $id, body: $body }) { comment { id } }
+              }`,
+              { id: context.payload.discussion.node_id, body }
+            );
+
+      # -------- codegen + deploy preview --------
+      - name: Setup Node
+        if: ${{ steps.decide.outputs.has_label == 'true' && steps.decide.outputs.complete == 'true' }}
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Generate Vue + AntV files
+        if: ${{ steps.decide.outputs.has_label == 'true' && steps.decide.outputs.complete == 'true' }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          echo "Answers:"
+          cat /tmp/autoui-answers.json
+
+          PRODUCT_NAME="$(node -p "require('/tmp/autoui-answers.json').product_name || ''")"
+          TAGLINE="$(node -p "require('/tmp/autoui-answers.json').tagline || ''")"
+          OFFER_TYPE="$(node -p "require('/tmp/autoui-answers.json').offer_type || ''")"
+          PRIMARY_CTA="$(node -p "require('/tmp/autoui-answers.json').primary_cta || ''")"
+          BRAND_TONE="$(node -p "require('/tmp/autoui-answers.json').brand_tone || ''")"
+          CHART_STYLE="$(node -p "require('/tmp/autoui-answers.json').chart_style || ''")"
+          FRAMEWORK="$(node -p "require('/tmp/autoui-answers.json').framework || ''")"
+          CHART_LIB="$(node -p "require('/tmp/autoui-answers.json').chart_lib || ''")"
+          MODAL_USAGE="$(node -p "require('/tmp/autoui-answers.json').modal_usage || ''")"
+
+          export PRODUCT_NAME TAGLINE OFFER_TYPE PRIMARY_CTA BRAND_TONE CHART_STYLE FRAMEWORK CHART_LIB MODAL_USAGE
+
+          mkdir -p coming-soon/src/components
+          envsubst < .github/templates/autoui/Landing.vue.template > coming-soon/src/Landing.vue
+          envsubst < .github/templates/autoui/StatsChart.vue.template > coming-soon/src/components/StatsChart.vue
+
+          cat > coming-soon/src/App.vue <<'EOF'
+          <script setup>
+          import Landing from "./Landing.vue";
+          </script>
+
+          <template>
+            <Landing />
+          </template>
+          EOF
+
+      - name: Install + Build (base=/beta/d-xxxx/)
+        if: ${{ steps.decide.outputs.has_label == 'true' && steps.decide.outputs.complete == 'true' }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          DNUM="${{ steps.decide.outputs.discussion_number }}"
+          export VITE_BASE="/beta/d-${DNUM}/"
+
+          cd coming-soon
+          npm ci || npm install
+          npm run build
+          test -d dist
+
+      - name: Deploy preview to gh-pages/beta/d-xxxx
+        if: ${{ steps.decide.outputs.has_label == 'true' && steps.decide.outputs.complete == 'true' }}
+        uses: peaceiris/actions-gh-pages@v4
+        with:
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          publish_branch: gh-pages
+          publish_dir: coming-soon/dist
+          destination_dir: beta/d-${{ steps.decide.outputs.discussion_number }}
+          keep_files: true
+
+      - name: Comment preview URL
+        if: ${{ steps.decide.outputs.has_label == 'true' && steps.decide.outputs.complete == 'true' }}
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const owner = context.repo.owner;
+            const repo = context.repo.repo;
+            const d = context.payload.discussion.number;
+            const isUserSite = repo === `${owner}.github.io`;
+            const url = isUserSite
+              ? `https://${owner}.github.io/beta/d-${d}/`
+              : `https://${owner}.github.io/${repo}/beta/d-${d}/`;
+
+            const body =
+              `✅ **AutoUI preview ready**\n\n` +
+              `Preview: ${url}\n\n` +
+              `When you’re happy, mark the discussion as **Answered** and I’ll open a PR.`;
+
+            await github.graphql(
+              `mutation($id: ID!, $body: String!) {
+                addDiscussionComment(input: { discussionId: $id, body: $body }) { comment { id } }
+              }`,
+              { id: context.payload.discussion.node_id, body }
+            );

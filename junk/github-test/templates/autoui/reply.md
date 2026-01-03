@@ -1,4 +1,4 @@
-## AutoUI — ${SECTION_TITLE}
+## 🤖 AutoUI — ${SECTION_TITLE}
 
 ${SECTION_INTRO}
 

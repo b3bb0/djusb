@@ -1,2 +1,7 @@
+<script setup>
 import Landing from "./Landing.vue";
-export default Landing;
+</script>
+
+<template>
+  <Landing />
+</template>

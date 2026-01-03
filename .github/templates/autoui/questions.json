@@ -3,39 +3,105 @@
     {
       "id": "product_marketing",
       "title": "Product & Marketing",
-      "intro": "Define positioning and page goal.",
+      "intro": "Define positioning and the landing goal.",
       "questions": [
-        { "key": "product_name", "ask": "Product name?", "options": [] },
-        { "key": "tagline", "ask": "One-line tagline?", "options": [] },
-        { "key": "offer_type", "ask": "Offer type?", "options": ["SaaS", "Marketplace", "Agency", "Internal Tool"] },
-        { "key": "primary_cta", "ask": "Primary CTA text?", "options": ["Get started", "Request demo", "Join waitlist"] }
+        {
+          "key": "product_name",
+          "ask": "Product name?",
+          "options": []
+        },
+        {
+          "key": "tagline",
+          "ask": "One-line tagline?",
+          "options": []
+        },
+        {
+          "key": "offer_type",
+          "ask": "Offer type?",
+          "options": [
+            "SaaS",
+            "Marketplace",
+            "Agency",
+            "Internal Tool"
+          ]
+        },
+        {
+          "key": "primary_cta",
+          "ask": "Primary CTA text?",
+          "options": [
+            "Get started",
+            "Request demo",
+            "Join waitlist",
+            "Contact us"
+          ]
+        }
       ]
     },
     {
       "id": "graphic_style",
-      "title": "Graphic & Style (AntV)",
-      "intro": "Visual language and interaction density.",
+      "title": "Graphic & Style (AntV Language)",
+      "intro": "Choose the visual language & interaction density.",
       "links": [
         "https://antv.antgroup.com/specification/language/basic",
         "https://antv.antgroup.com/specification/language/interact"
       ],
       "questions": [
-        { "key": "brand_tone", "ask": "Visual tone?", "options": ["Minimal", "Bold", "Playful", "Serious"] },
-        { "key": "chart_style", "ask": "Chart style?", "options": ["Clean grid", "Soft minimal", "High contrast"] }
+        {
+          "key": "brand_tone",
+          "ask": "Visual tone?",
+          "options": [
+            "Minimal",
+            "Bold",
+            "Playful",
+            "Serious",
+            "Luxury"
+          ]
+        },
+        {
+          "key": "chart_style",
+          "ask": "Chart style?",
+          "options": [
+            "Clean grid",
+            "Soft minimal",
+            "High contrast",
+            "Card-based"
+          ]
+        }
       ]
     },
     {
       "id": "tech_interaction",
-      "title": "Tech & Interaction",
-      "intro": "Tech stack and interactive patterns.",
+      "title": "Tech & Interaction (Modal + Media)",
+      "intro": "Tech constraints + modal/media strategy.",
       "links": [
         "https://antv.antgroup.com/specification/strategy/modal",
         "https://antv.antgroup.com/specification/language/media"
       ],
       "questions": [
-        { "key": "framework", "ask": "Vue version?", "options": ["Vue 3"] },
-        { "key": "chart_lib", "ask": "Chart lib?", "options": ["@antv/g2"] },
-        { "key": "modal_usage", "ask": "Modal usage?", "options": ["None", "Details only", "Primary CTA"] }
+        {
+          "key": "framework",
+          "ask": "Vue version?",
+          "options": [
+            "Vue 3"
+          ]
+        },
+        {
+          "key": "chart_lib",
+          "ask": "Chart library?",
+          "options": [
+            "@antv/g2",
+            "G2Plot"
+          ]
+        },
+        {
+          "key": "modal_usage",
+          "ask": "Modal usage?",
+          "options": [
+            "None",
+            "Details only",
+            "Primary CTA"
+          ]
+        }
       ]
     }
   ]

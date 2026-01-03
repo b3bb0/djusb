@@ -1,0 +1,221 @@
+name: AutoUI Finalize — PR from discussion
+
+on:
+  discussion:
+    types: [answered]
+
+permissions:
+  contents: write
+  discussions: write
+  pull-requests: write
+
+jobs:
+  autoui_finalize:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout (full history)
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Verify templates exist
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -f .github/templates/autoui/questions.json
+          test -f .github/templates/autoui/Landing.vue.template
+          test -f .github/templates/autoui/StatsChart.vue.template
+          echo "Templates OK."
+
+      - name: Parse discussion answers (authoritative)
+        id: parse
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const fs = require("fs");
+            const cfg = JSON.parse(fs.readFileSync(".github/templates/autoui/questions.json", "utf8"));
+
+            const discussionId = context.payload.discussion.node_id;
+            const discussionNumber = context.payload.discussion.number;
+
+            const q = `
+            query($id: ID!) {
+              node(id: $id) {
+                ... on Discussion {
+                  title
+                  body
+                  labels(first: 50) { nodes { name } }
+                  comments(first: 100) { nodes { body author { login } } }
+                }
+              }
+            }`;
+
+            const data = await github.graphql(q, { id: discussionId });
+            const node = data.node;
+
+            const labels = (node.labels?.nodes || []).map(l => l.name);
+            if (!labels.includes("AutoUI")) {
+              core.setFailed("AutoUI label missing; refusing to finalize.");
+              return;
+            }
+
+            const allQuestions = cfg.sections.flatMap(s => s.questions.map(q => ({ ...q, section: s })));
+
+            const textBlob = [
+              node.body || "",
+              ...(node.comments?.nodes || []).map(c => c.body || "")
+            ].join("\n\n");
+
+            const answers = {};
+            for (const q of allQuestions) {
+              const re = new RegExp(`(?:^|\\n)\\s*${q.key}\\s*(?:=|:)\\s*([^\\n]+)`, "i");
+              const m = textBlob.match(re);
+              if (m && m[1]) answers[q.key] = m[1].trim();
+            }
+
+            fs.writeFileSync("/tmp/autoui-answers.json", JSON.stringify(answers, null, 2));
+
+            core.setOutput("discussion_number", String(discussionNumber));
+            core.setOutput("discussion_title", node.title || "");
+            core.setOutput("discussion_id", discussionId);
+
+      - name: Comment params/instructions to be used
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const fs = require("fs");
+            const answers = JSON.parse(fs.readFileSync("/tmp/autoui-answers.json", "utf8"));
+            const d = context.payload.discussion.number;
+
+            const body =
+              `🧾 **Finalize parameters (d-${d})**\n\n` +
+              "I will:\n" +
+              "- pull latest `main`\n" +
+              `- create branch \`ui-discussion-${d}\`\n` +
+              "- regenerate UI files from templates\n" +
+              "- commit + push\n" +
+              "- open PR + request your review\n\n" +
+              "```json\n" +
+              JSON.stringify(answers, null, 2) +
+              "\n```";
+
+            await github.graphql(
+              `mutation($id: ID!, $body: String!) {
+                addDiscussionComment(input: { discussionId: $id, body: $body }) { comment { id } }
+              }`,
+              { id: context.payload.discussion.node_id, body }
+            );
+
+      - name: Create branch from latest main
+        shell: bash
+        run: |
+          set -euo pipefail
+          DNUM="${{ steps.parse.outputs.discussion_number }}"
+          git fetch origin main
+          git checkout -B "ui-discussion-${DNUM}" origin/main
+
+      - name: Generate Vue + AntV files (final)
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          PRODUCT_NAME="$(node -p "require('/tmp/autoui-answers.json').product_name || ''")"
+          TAGLINE="$(node -p "require('/tmp/autoui-answers.json').tagline || ''")"
+          OFFER_TYPE="$(node -p "require('/tmp/autoui-answers.json').offer_type || ''")"
+          PRIMARY_CTA="$(node -p "require('/tmp/autoui-answers.json').primary_cta || ''")"
+          BRAND_TONE="$(node -p "require('/tmp/autoui-answers.json').brand_tone || ''")"
+          CHART_STYLE="$(node -p "require('/tmp/autoui-answers.json').chart_style || ''")"
+          FRAMEWORK="$(node -p "require('/tmp/autoui-answers.json').framework || ''")"
+          CHART_LIB="$(node -p "require('/tmp/autoui-answers.json').chart_lib || ''")"
+          MODAL_USAGE="$(node -p "require('/tmp/autoui-answers.json').modal_usage || ''")"
+
+          export PRODUCT_NAME TAGLINE OFFER_TYPE PRIMARY_CTA BRAND_TONE CHART_STYLE FRAMEWORK CHART_LIB MODAL_USAGE
+
+          mkdir -p coming-soon/src/components
+          envsubst < .github/templates/autoui/Landing.vue.template > coming-soon/src/Landing.vue
+          envsubst < .github/templates/autoui/StatsChart.vue.template > coming-soon/src/components/StatsChart.vue
+
+          cat > coming-soon/src/App.vue <<'EOF'
+          <script setup>
+          import Landing from "./Landing.vue";
+          </script>
+
+          <template>
+            <Landing />
+          </template>
+          EOF
+
+      - name: Commit + push branch
+        shell: bash
+        run: |
+          set -euo pipefail
+          DNUM="${{ steps.parse.outputs.discussion_number }}"
+
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+
+          git add coming-soon/src
+          git commit -m "AutoUI: finalize UI from discussion d-${DNUM}" || true
+          git push -u origin "ui-discussion-${DNUM}"
+
+      - name: Create PR + request review from closer
+        id: pr
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const d = context.payload.discussion.number;
+            const owner = context.repo.owner;
+            const repo = context.repo.repo;
+
+            const head = `ui-discussion-${d}`;
+            const base = "main";
+            const title = `AutoUI: UI from discussion d-${d}`;
+            const body =
+              `This PR was generated from Discussion **d-${d}**.\n\n` +
+              `- Branch: \`${head}\`\n` +
+              `- Target: \`${base}\`\n`;
+
+            let prNumber;
+            try {
+              const pr = await github.rest.pulls.create({ owner, repo, head, base, title, body, draft: false });
+              prNumber = pr.data.number;
+            } catch (e) {
+              const prs = await github.rest.pulls.list({ owner, repo, state: "open", head: `${owner}:${head}` });
+              if (!prs.data.length) throw e;
+              prNumber = prs.data[0].number;
+            }
+
+            const reviewer = context.payload.sender?.login;
+            if (reviewer) {
+              await github.rest.pulls.requestReviewers({
+                owner, repo,
+                pull_number: prNumber,
+                reviewers: [reviewer],
+              });
+            }
+
+            core.setOutput("pr_number", String(prNumber));
+
+      - name: Comment PR link back on the discussion
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const owner = context.repo.owner;
+            const repo = context.repo.repo;
+            const pr = "${{ steps.pr.outputs.pr_number }}";
+            const who = context.payload.sender?.login || "reviewer";
+
+            const body = `✅ Finalized into PR: https://github.com/${owner}/${repo}/pull/${pr}\n\nReview requested from: @${who}`;
+
+            await github.graphql(
+              `mutation($id: ID!, $body: String!) {
+                addDiscussionComment(input: { discussionId: $id, body: $body }) { comment { id } }
+              }`,
+              { id: context.payload.discussion.node_id, body }
+            );

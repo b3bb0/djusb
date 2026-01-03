@@ -1,100 +1,34 @@
-<template>
-  <main class="wrap">
-    <section class="hero">
-      <h1>{{ productName }}</h1>
-      <p class="sub">
-        Never lose your set. Backup, verify, and restore your DJ USB library before your next gig.
-      </p>
-      <div class="cta">
-        <button class="btn">{{ primaryCta }}</button>
-        <a class="link" href="#how">How it works</a>
-      </div>
-      <p class="meta">
-        Offer type: <b>{{ offerType }}</b> • Delivery: <b>{{ deliveryMethod }}</b> • Platforms: <b>{{ platforms }}</b>
-      </p>
-    </section>
-
-    <section id="how" class="section">
-      <h2>How it works</h2>
-      <ol class="steps">
-        <li>Provide your library ({{ deliveryMethod }})</li>
-        <li>We backup + verify integrity</li>
-        <li>Restore anytime (new USB or download)</li>
-      </ol>
-    </section>
-
-    <section class="section">
-      <h2>Reliability</h2>
-      <StatsChart />
-      <p class="small">Example chart placeholder — wire real numbers when ready.</p>
-    </section>
-
-    <section class="section">
-      <h2>Pricing</h2>
-      <div class="cards">
-        <div class="card">
-          <h3>Starter</h3>
-          <p>Basic protection for one USB.</p>
-        </div>
-        <div class="card">
-          <h3>Pro</h3>
-          <p>Multiple USBs + version history.</p>
-        </div>
-        <div class="card">
-          <h3>Emergency</h3>
-          <p>Priority restore when time matters.</p>
-        </div>
-      </div>
-      <p class="small">Model: {{ pricingModel }}</p>
-    </section>
-
-    <section class="section">
-      <h2>FAQ</h2>
-      <details>
-        <summary>Do you support my DJ software?</summary>
-        <p>Currently: {{ platforms }}</p>
-      </details>
-      <details>
-        <summary>How fast can I restore?</summary>
-        <p>Depends on size and delivery method. We’ll publish SLAs once launch is set.</p>
-      </details>
-      <details>
-        <summary>Is my data private?</summary>
-        <p>We only use your files to create backups/restores. We don’t resell or share content.</p>
-      </details>
-    </section>
-
-    <footer class="footer">
-      <span>© {{ new Date().getFullYear() }} {{ productName }}</span>
-    </footer>
-  </main>
-</template>
-
-<script setup>
+<script setup lang="ts">
 import StatsChart from "./components/StatsChart.vue";
 
 const productName = "${PRODUCT_NAME}";
-const offerType = "${OFFER_TYPE}";
-const deliveryMethod = "${DELIVERY_METHOD}";
-const platforms = "${PLATFORMS}";
-const pricingModel = "${PRICING_MODEL}";
+const tagline = "${TAGLINE}";
 const primaryCta = "${PRIMARY_CTA}";
+const offerType = "${OFFER_TYPE}";
+const brandTone = "${BRAND_TONE}";
+const chartStyle = "${CHART_STYLE}";
+const modalUsage = "${MODAL_USAGE}";
 </script>
 
-<style scoped>
-.wrap { padding: 28px; font-family: system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif; max-width: 980px; margin: 0 auto; }
-.hero { padding: 28px 0; }
-h1 { font-size: 44px; line-height: 1.05; margin: 0 0 10px; }
-.sub { margin: 0 0 14px; color: #444; }
-.cta { display: flex; gap: 12px; align-items: center; margin: 12px 0 10px; }
-.btn { padding: 12px 14px; border-radius: 12px; border: 1px solid #999; background: white; cursor: pointer; }
-.link { color: inherit; }
-.meta { color: #666; font-size: 14px; }
-.section { padding: 22px 0; border-top: 1px solid #eee; }
-.steps { margin: 10px 0 0; padding-left: 18px; }
-.cards { display: grid; grid-template-columns: repeat(3, minmax(0,1fr)); gap: 12px; margin-top: 10px; }
-.card { border: 1px solid #e6e6e6; border-radius: 14px; padding: 14px; }
-.small { color: #666; font-size: 14px; margin-top: 10px; }
-.footer { padding: 22px 0; border-top: 1px solid #eee; color: #666; font-size: 14px; }
-@media (max-width: 860px) { .cards { grid-template-columns: 1fr; } h1 { font-size: 36px; } }
-</style>
+<template>
+  <main style="max-width: 980px; margin: 40px auto; padding: 0 20px;">
+    <header style="display:flex; justify-content:space-between; align-items:flex-start; gap:24px;">
+      <div>
+        <h1 style="margin:0;">{{ productName }}</h1>
+        <p style="margin:10px 0 0; opacity:.75;">{{ tagline }}</p>
+        <p style="margin:10px 0 0; opacity:.6; font-size: 14px;">
+          Offer: {{ offerType }} · Tone: {{ brandTone }} · Chart: {{ chartStyle }} · Modal: {{ modalUsage }}
+        </p>
+      </div>
+
+      <button style="height: 40px; padding: 0 16px; cursor:pointer;">
+        {{ primaryCta }}
+      </button>
+    </header>
+
+    <section style="margin-top: 30px;">
+      <h2 style="margin: 0 0 10px;">Live metrics</h2>
+      <StatsChart />
+    </section>
+  </main>
+</template>
