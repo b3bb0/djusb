@@ -14,9 +14,6 @@ jobs:
   autoui:
     runs-on: ubuntu-latest
 
-    # Only run when discussion has label "AutoUI"
-    if: ${{ contains(toJson(github.event.discussion.labels.*.name), 'AutoUI') }}
-
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -33,7 +30,7 @@ jobs:
           echo "All templates present."
 
       # ---------- parse discussion ----------
-      - name: Parse discussion for answers + decide next question
+      - name: Parse discussion + decide next question
         id: decide
         uses: actions/github-script@v7
         with:
@@ -44,74 +41,108 @@ jobs:
               fs.readFileSync(".github/templates/autoui/questions.json", "utf8")
             );
 
-            const discussion = context.payload.discussion;
+            const discussionId = context.payload.discussion.node_id;
 
             const q = `
-              query($id: ID!) {
-                node(id: $id) {
-                  ... on Discussion {
-                    body
-                    comments(first: 50) {
-                      nodes { body }
+            query($id: ID!) {
+              node(id: $id) {
+                ... on Discussion {
+                  body
+                  labels(first: 20) { nodes { name } }
+                  comments(first: 100) {
+                    nodes {
+                      body
+                      author { login }
                     }
                   }
                 }
-              }`;
+              }
+            }`;
 
-            const data = await github.graphql(q, { id: discussion.node_id });
+            const data = await github.graphql(q, { id: discussionId });
             const node = data.node;
+
+            const labels = node.labels.nodes.map(l => l.name);
+            if (!labels.includes("AutoUI")) {
+              core.setOutput("complete", "false");
+              core.setOutput("next_question", "");
+              core.setOutput("status_block", "AutoUI label missing.");
+              return;
+            }
+
+            const allQuestions = cfg.sections.flatMap(s =>
+              s.questions.map(q => ({ ...q, section: s }))
+            );
 
             const textBlob = [
               node.body || "",
-              ...(node.comments.nodes || []).map(c => c.body || "")
+              ...node.comments.nodes.map(c => c.body || "")
             ].join("\n\n");
 
-            // support BOTH key:value and key=value
             const answers = {};
-            for (const item of cfg.questions) {
+            for (const q of allQuestions) {
               const re = new RegExp(
-                `(?:^|\\n)\\s*${item.key}\\s*(?:=|:)\\s*([^\\n]+)`,
+                `(?:^|\\n)\\s*${q.key}\\s*(?:=|:)\\s*([^\\n]+)`,
                 "i"
               );
               const m = textBlob.match(re);
-              if (m && m[1]) answers[item.key] = m[1].trim();
+              if (m) answers[q.key] = m[1].trim();
             }
 
-            const next = cfg.questions.find(q => !answers[q.key]);
+            const botLogin = "github-actions[bot]";
+            const lastHuman = [...node.comments.nodes]
+              .reverse()
+              .find(c => c.author?.login !== botLogin);
 
-            const status = cfg.questions.map(q => {
-              return answers[q.key]
-                ? `- \`${q.key}\`: ✅ ${answers[q.key]}`
-                : `- \`${q.key}\`: ❌ (missing)`;
-            }).join("\n");
+            const wantsSkip = lastHuman
+              ? /(^|\s)(skip|next)(\s|$)/i.test(lastHuman.body)
+              : false;
 
-            fs.writeFileSync(
-              "/tmp/autoui-answers.json",
-              JSON.stringify(answers, null, 2)
+            const nextQ = allQuestions.find(q => !answers[q.key]);
+
+            fs.writeFileSync("/tmp/autoui-answers.json", JSON.stringify(answers, null, 2));
+
+            core.setOutput("complete", nextQ ? "false" : "true");
+            core.setOutput("pending_key", nextQ?.key || "");
+            core.setOutput("section_id", nextQ?.section.id || "");
+            core.setOutput("section_title", nextQ?.section.title || "");
+            core.setOutput("section_intro", nextQ?.section.intro || "");
+            core.setOutput(
+              "section_links",
+              (nextQ?.section.links || []).map(l => `- ${l}`).join("\n")
             );
+            core.setOutput(
+              "next_question",
+              nextQ
+                ? `${nextQ.ask}\n\n${
+                    nextQ.options?.length
+                      ? "**Options:**\n" + nextQ.options.map(o => `- ${o}`).join("\n")
+                      : ""
+                  }\n\nReply with:\n- \`${nextQ.key}=...\`\n- or \`skip\` / \`next\``
+                : ""
+            );
+            core.setOutput("wants_skip", wantsSkip ? "true" : "false");
 
-            core.setOutput("complete", next ? "false" : "true");
-            core.setOutput("next_question", next ? next.ask : "");
+            const status = cfg.sections.map(s => {
+              const lines = s.questions.map(q => {
+                const v = answers[q.key];
+                if (!v) return `- \`${q.key}\`: ❌`;
+                if (v === "__SKIP__") return `- \`${q.key}\`: ⏭️ skipped`;
+                return `- \`${q.key}\`: ✅ ${v}`;
+              });
+              return `### ${s.title}\n${lines.join("\n")}`;
+            }).join("\n\n");
+
             core.setOutput("status_block", status);
 
-      # ---------- reply ----------
-      - name: Render reply comment
-        if: ${{ steps.decide.outputs.complete == 'false' }}
-        shell: bash
-        run: |
-          set -euo pipefail
-          export STATUS_BLOCK="${{ steps.decide.outputs.status_block }}"
-          export NEXT_QUESTION="${{ steps.decide.outputs.next_question }}"
-          envsubst < .github/templates/autoui/reply.md > /tmp/autoui-reply.md
-          cat /tmp/autoui-reply.md
-
-      - name: Comment next question
-        if: ${{ steps.decide.outputs.complete == 'false' }}
+      # ---------- persist skip ----------
+      - name: Persist skip marker
+        if: ${{ steps.decide.outputs.wants_skip == 'true' && steps.decide.outputs.pending_key != '' }}
         uses: actions/github-script@v7
         with:
           script: |
-            const fs = require("fs");
-            const body = fs.readFileSync("/tmp/autoui-reply.md", "utf8");
+            const key = "${{ steps.decide.outputs.pending_key }}";
+            const body = `${key}=__SKIP__\n\n<!-- autoui:skip=${key} -->`;
 
             await github.graphql(
               `mutation($id: ID!, $body: String!) {
@@ -122,65 +153,73 @@ jobs:
               { id: context.payload.discussion.node_id, body }
             );
 
-      # ---------- codegen ----------
+      # ---------- reply ----------
+      - name: Render reply
+        if: ${{ steps.decide.outputs.complete == 'false' }}
+        shell: bash
+        run: |
+          export STATUS_BLOCK="${{ steps.decide.outputs.status_block }}"
+          export NEXT_QUESTION="${{ steps.decide.outputs.next_question }}"
+          export SECTION_TITLE="${{ steps.decide.outputs.section_title }}"
+          export SECTION_INTRO="${{ steps.decide.outputs.section_intro }}"
+          export SECTION_LINKS="${{ steps.decide.outputs.section_links }}"
+          export QUESTION_KEY="${{ steps.decide.outputs.pending_key }}"
+          envsubst < .github/templates/autoui/reply.md > /tmp/reply.md
+
+      - name: Comment question
+        if: ${{ steps.decide.outputs.complete == 'false' }}
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const fs = require("fs");
+            const body = fs.readFileSync("/tmp/reply.md", "utf8");
+            await github.graphql(
+              `mutation($id: ID!, $body: String!) {
+                addDiscussionComment(input: { discussionId: $id, body: $body }) {
+                  comment { id }
+                }
+              }`,
+              { id: context.payload.discussion.node_id, body }
+            );
+
+      # ---------- build & deploy ----------
       - name: Setup Node
         if: ${{ steps.decide.outputs.complete == 'true' }}
         uses: actions/setup-node@v4
         with:
           node-version: 20
 
-      - name: Generate Vue + AntV files
+      - name: Build Vue
         if: ${{ steps.decide.outputs.complete == 'true' }}
         shell: bash
         run: |
-          set -euo pipefail
-
-          echo "Answers:"
-          cat /tmp/autoui-answers.json
-
-          PRODUCT_NAME="$(node -p "require('/tmp/autoui-answers.json').product_name")"
-          OFFER_TYPE="$(node -p "require('/tmp/autoui-answers.json').offer_type")"
-          DELIVERY_METHOD="$(node -p "require('/tmp/autoui-answers.json').delivery_method")"
-          PLATFORMS="$(node -p "require('/tmp/autoui-answers.json').platforms")"
-          PRICING_MODEL="$(node -p "require('/tmp/autoui-answers.json').pricing_model")"
-          PRIMARY_CTA="$(node -p "require('/tmp/autoui-answers.json').primary_cta")"
-
-          export PRODUCT_NAME OFFER_TYPE DELIVERY_METHOD PLATFORMS PRICING_MODEL PRIMARY_CTA
-
-          mkdir -p coming-soon/src/components
-
-          envsubst < .github/templates/autoui/Landing.vue.template > coming-soon/src/Landing.vue
-          envsubst < .github/templates/autoui/StatsChart.vue.template > coming-soon/src/components/StatsChart.vue
-
-          cat > coming-soon/src/App.vue <<'EOF'
-          import Landing from "./Landing.vue";
-          export default Landing;
-          EOF
           cd coming-soon
-          if ! grep -q '"@antv/g2"' package.json; then
-            npm install @antv/g2
-          fi
-          cd ..
+          npm ci || npm install
+          npm run build
 
-          git config user.name "github-actions[bot]"
-          git config user.email "github-actions[bot]@users.noreply.github.com"
-          git add coming-soon
-          git commit -m "AutoUI: generate Vue landing + AntV chart" || true
-          git push
+      - name: Deploy /beta (AI only)
+        if: ${{ steps.decide.outputs.complete == 'true' }}
+        uses: peaceiris/actions-gh-pages@v4
+        with:
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          publish_branch: gh-pages
+          publish_dir: coming-soon/dist
+          destination_dir: beta
+          keep_files: true
 
-      # ---------- done ----------
       - name: Comment completion
         if: ${{ steps.decide.outputs.complete == 'true' }}
         uses: actions/github-script@v7
         with:
           script: |
-            const body =
-            `AutoUI complete ✅
-            Generated:
-            - coming-soon/src/Landing.vue
-            - coming-soon/src/components/StatsChart.vue
-            - updated App.vue
-            Pages deploy will publish on next run.`;
+            const owner = context.repo.owner;
+            const repo = context.repo.repo;
+            const isUserSite = repo === `${owner}.github.io`;
+            const url = isUserSite
+              ? `https://${owner}.github.io/beta/`
+              : `https://${owner}.github.io/${repo}/beta/`;
+
+            const body = `✅ **AutoUI complete**\n\n🚀 Beta deployed:\n${url}`;
             await github.graphql(
               `mutation($id: ID!, $body: String!) {
                 addDiscussionComment(input: { discussionId: $id, body: $body }) {
