@@ -1,5 +1,4 @@
-
-name: Bootstrap (if missing) + Build + Deploy
+name: Auto Bootstrap Vue + Deploy to GitHub Pages
 
 on:
   push:
@@ -19,60 +18,110 @@ jobs:
   build:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - name: Checkout
+        uses: actions/checkout@v4
 
-      # 1) Node (NO cache yet)
-      - uses: actions/setup-node@v4
+      # Node first (NO cache here, because lockfile might not exist yet)
+      - name: Setup Node
+        uses: actions/setup-node@v4
         with:
           node-version: 20
 
-      # 2) Bootstrap if missing
+      # Bootstrap only if missing
       - name: Bootstrap coming-soon if missing
+        shell: bash
         run: |
-          if [ ! -d "coming-soon" ]; then
-            npm create vue@latest coming-soon -- --default --packageManager npm
+          set -euo pipefail
 
-            cat > coming-soon/src/App.vue <<'EOF'
-            <template>
-              <main class="wrap">
-                <section class="card">
-                  <p class="badge">Coming Soon</p>
-                  <h1>A better way to do X</h1>
-                  <p class="sub">We’re building something new.</p>
-                </section>
-              </main>
-            </template>
-            <style scoped>
-            .wrap{min-height:100vh;display:grid;place-items:center;padding:24px;font-family:system-ui}
-            .card{border:1px solid #e6e6e6;border-radius:18px;padding:28px}
-            .badge{display:inline-block;padding:6px 10px;border:1px solid #ddd;border-radius:999px;font-size:12px}
-            </style>
-            EOF
-
-            cat > coming-soon/vite.config.js <<'EOF'
-            import { defineConfig } from "vite";
-            import vue from "@vitejs/plugin-vue";
-            export default defineConfig({
-              plugins: [vue()],
-              base: process.env.BASE_PATH ?? "/",
-            });
-            EOF
-
-            git config user.name "github-actions[bot]"
-            git config user.email "github-actions[bot]@users.noreply.github.com"
-            git add coming-soon
-            git commit -m "Bootstrap Vue coming-soon site" || true
-            git push
+          if [ -d "coming-soon" ]; then
+            echo "coming-soon/ exists, skipping bootstrap."
+            exit 0
           fi
 
-      # 3) Now the lockfile exists -> enable npm cache (optional)
-      - uses: actions/setup-node@v4
+          echo "Bootstrapping Vue app into coming-soon/ ..."
+          npm create vue@latest coming-soon -- --default --packageManager npm
+
+          echo "Writing Coming Soon App.vue ..."
+          cat > coming-soon/src/App.vue <<'EOF'
+<template>
+  <main class="wrap">
+    <section class="card">
+      <p class="badge">Coming Soon</p>
+      <h1>{{ title }}</h1>
+      <p class="sub">
+        We’re building something new. Leave your email and we’ll let you know when it’s live.
+      </p>
+
+      <form class="form" @submit.prevent="submitted = true">
+        <input v-model="email" type="email" required placeholder="you@example.com" />
+        <button type="submit">Notify me</button>
+      </form>
+
+      <p v-if="submitted" class="ok">Thanks! We’ll be in touch.</p>
+
+      <footer class="footer">
+        <span>© {{ new Date().getFullYear() }} {{ brand }}</span>
+        <span class="dot">•</span>
+        <a :href="socialUrl" target="_blank" rel="noreferrer">Social</a>
+      </footer>
+    </section>
+  </main>
+</template>
+
+<script setup>
+import { ref } from "vue";
+
+const brand = "YourBrand";
+const title = "A better way to do X";
+const socialUrl = "https://example.com";
+
+const email = ref("");
+const submitted = ref(false);
+</script>
+
+<style scoped>
+.wrap { min-height: 100vh; display: grid; place-items: center; padding: 24px; font-family: system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif; }
+.card { width: min(680px, 100%); border: 1px solid #e6e6e6; border-radius: 18px; padding: 28px; }
+.badge { display: inline-block; padding: 6px 10px; border: 1px solid #ddd; border-radius: 999px; font-size: 12px; margin: 0 0 10px; }
+h1 { margin: 6px 0 10px; font-size: 42px; line-height: 1.1; }
+.sub { margin: 0 0 18px; color: #444; }
+.form { display: flex; gap: 10px; margin: 10px 0 8px; }
+input { flex: 1; padding: 12px 12px; border-radius: 12px; border: 1px solid #ccc; }
+button { padding: 12px 14px; border-radius: 12px; border: 1px solid #999; background: white; cursor: pointer; }
+.ok { margin: 10px 0 0; color: #0a7a2f; }
+.footer { margin-top: 18px; display: flex; gap: 10px; align-items: center; color: #666; font-size: 14px; }
+.dot { opacity: 0.6; }
+a { color: inherit; }
+</style>
+EOF
+
+          echo "Writing vite.config.js (Pages base from env) ..."
+          cat > coming-soon/vite.config.js <<'EOF'
+import { defineConfig } from "vite";
+import vue from "@vitejs/plugin-vue";
+
+export default defineConfig({
+  plugins: [vue()],
+  base: process.env.BASE_PATH ?? "/",
+});
+EOF
+
+          echo "Committing bootstrap output ..."
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add coming-soon
+          git commit -m "Bootstrap Vue coming-soon site" || true
+          git push
+
+      # Now that coming-soon exists, caching is safe (optional but nice)
+      - name: Setup Node (with npm cache)
+        if: ${{ hashFiles('coming-soon/package-lock.json') != '' }}
+        uses: actions/setup-node@v4
         with:
           node-version: 20
           cache: npm
           cache-dependency-path: coming-soon/package-lock.json
 
-      # 4) Install + build
       - name: Install
         working-directory: coming-soon
         run: npm ci
@@ -83,9 +132,11 @@ jobs:
           BASE_PATH: /${{ github.event.repository.name }}/
         run: npm run build
 
-      # 5) Deploy to Pages
-      - uses: actions/configure-pages@v5
-      - uses: actions/upload-pages-artifact@v3
+      - name: Configure Pages
+        uses: actions/configure-pages@v5
+
+      - name: Upload Pages artifact
+        uses: actions/upload-pages-artifact@v3
         with:
           path: coming-soon/dist
 
@@ -96,5 +147,6 @@ jobs:
       name: github-pages
       url: ${{ steps.deployment.outputs.page_url }}
     steps:
-      - id: deployment
+      - name: Deploy
+        id: deployment
         uses: actions/deploy-pages@v4
