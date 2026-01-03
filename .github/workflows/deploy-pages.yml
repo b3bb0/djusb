@@ -35,7 +35,7 @@ jobs:
             echo "coming-soon/ exists, skipping bootstrap."
           else
             echo "Scaffolding Vue into coming-soon/..."
-            npm create vue@latest coming-soon -- --default --packageManager npm
+            npm create vue@latest coming-soon -- --default
 
             echo "Copying templates..."
             cp .github/templates/coming-soon/App.vue coming-soon/src/App.vue
