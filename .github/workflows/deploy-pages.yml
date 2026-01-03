@@ -2,7 +2,7 @@ name: Auto Bootstrap Vue + Deploy to GitHub Pages (cp templates)
 
 on:
   push:
-    branches: ["main"]
+    branches: ["none"]
   workflow_dispatch:
 
 permissions:
