@@ -60,7 +60,7 @@ jobs:
 
       - name: Install
         working-directory: coming-soon
-        run: npm ci
+        run: npm i
 
       - name: Build
         working-directory: coming-soon
