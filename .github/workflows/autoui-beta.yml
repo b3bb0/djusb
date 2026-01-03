@@ -96,7 +96,7 @@ jobs:
               });
               return `### ${s.title}\n${lines.join("\n")}`;
             }).join("\n\n");
-
+            
             fs.writeFileSync("/tmp/autoui-answers.json", JSON.stringify(answers, null, 2));
 
             core.setOutput("complete", nextQ ? "false" : "true");
