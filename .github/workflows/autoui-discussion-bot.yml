@@ -21,6 +21,16 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
+     - name: Debug autoui templates
+       shell: bash
+       run: |
+         set -euo pipefail
+         pwd
+         echo "Listing .github:"
+         ls -R .github || true
+         echo "Checking file explicitly:"
+         ls -l .github/templates/autoui || true
+    
       - name: Load questions config
         id: cfg
         run: |
