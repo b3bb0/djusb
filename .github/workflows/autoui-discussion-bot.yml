@@ -193,15 +193,12 @@ jobs:
           script: |
             const discussionId = context.payload.discussion.node_id;
             const body =
-`AutoUI complete ✅
-
-I generated:
-- \`coming-soon/src/Landing.vue\`
-- \`coming-soon/src/components/StatsChart.vue\` (AntV G2)
-- updated \`coming-soon/src/App.vue\`
-
-Your Pages deploy workflow should publish it on the next run.`;
-
+             `AutoUI complete ✅
+             I generated:
+             - \`coming-soon/src/Landing.vue\`
+             - \`coming-soon/src/components/StatsChart.vue\` (AntV G2)
+             - updated \`coming-soon/src/App.vue\`
+             Your Pages deploy workflow should publish it on the next run.`;
             await github.graphql(
               `mutation($discussionId: ID!, $body: String!) {
                 addDiscussionComment(input: { discussionId: $discussionId, body: $body }) {
