@@ -88,12 +88,12 @@ jobs:
 
             const status = cfg.sections.map(s => {
               const lines = s.questions.map(q => {
-                const v = answers[q.key];
-                if (!v) return `- \`${q.key}\`: ❌`;
-                if (String(v).toUpperCase() === "__SKIP__") return `- \`${q.key}\`: ⏭️ skipped`;
+              const v = answers?.[s.id]?.[q.key];
+              if (!v) return `- \`${q.key}\`: ❌`;
+              if (String(v).toUpperCase() === "__SKIP__") return `- \`${q.key}\`: ⏭️ skipped`;
                 return `- \`${q.key}\`: ✅ ${v}`;
-              });
-              return `### ${s.title}\n${lines.join("\n")}`;
+               });
+               return `### ${s.title}\n${lines.join("\n")}`;
             }).join("\n\n");
 
             fs.writeFileSync("/tmp/autoui-answers.json", JSON.stringify(answers, null, 2));
