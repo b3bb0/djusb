@@ -1,0 +1,29 @@
+{
+  "label": "AutoUI",
+  "questions": [
+    {
+      "key": "product_name",
+      "ask": "What is the product name/brand for this? (e.g., \"DJ USB Backup\")\nReply like: `product_name: ...`"
+    },
+    {
+      "key": "offer_type",
+      "ask": "Is this a **service**, an **app**, or **hybrid**?\nReply like: `offer_type: service|app|hybrid`"
+    },
+    {
+      "key": "delivery_method",
+      "ask": "How does the customer provide the library/USB?\nOptions: upload | local plug-in | mail-in\nReply like: `delivery_method: upload`"
+    },
+    {
+      "key": "platforms",
+      "ask": "Which platforms do you support **today**?\nOptions: rekordbox, engine, serato\nReply like: `platforms: rekordbox, engine`"
+    },
+    {
+      "key": "pricing_model",
+      "ask": "Pricing model?\nOptions: subscription | one-time | emergency add-on\nReply like: `pricing_model: subscription`"
+    },
+    {
+      "key": "primary_cta",
+      "ask": "Primary CTA button text?\nExamples: \"Join Waitlist\" / \"Get Backup\" / \"Book a Backup\"\nReply like: `primary_cta: Join Waitlist`"
+    }
+  ]
+}
