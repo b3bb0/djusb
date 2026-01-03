@@ -167,9 +167,9 @@ jobs:
           # Ensure App.vue uses Landing
           cp coming-soon/src/App.vue coming-soon/src/App.vue.bak || true
           cat > coming-soon/src/App.vue <<'EOF'
-import Landing from "./Landing.vue";
-export default Landing;
-EOF
+          import Landing from "./Landing.vue";
+          export default Landing;
+          EOF
 
           # Add AntV dependency if missing
           cd coming-soon
