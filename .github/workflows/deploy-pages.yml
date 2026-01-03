@@ -42,7 +42,7 @@ jobs:
           npm create vue@latest coming-soon -- --default --packageManager npm
 
           echo "Writing Coming Soon App.vue ..."
-          cat > coming-soon/src/App.vue <<'EOF'
+          cat > coming-soon/src/App.vue <<EOF
 <template>
   <main class="wrap">
     <section class="card">
