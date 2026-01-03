@@ -21,23 +21,18 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Debug autoui templates
+      # ---------- sanity ----------
+      - name: Verify templates exist
         shell: bash
         run: |
           set -euo pipefail
-          pwd
-          echo "Listing .github:"
-          ls -R .github || true
-          echo "Checking file explicitly:"
-          ls -l .github/templates/autoui || true
-    
-      - name: Load questions config
-        id: cfg
-        run: |
-          set -euo pipefail
           test -f .github/templates/autoui/questions.json
-          echo "ok=true" >> "$GITHUB_OUTPUT"
+          test -f .github/templates/autoui/reply.md
+          test -f .github/templates/autoui/Landing.vue.template
+          test -f .github/templates/autoui/StatsChart.vue.template
+          echo "All templates present."
 
+      # ---------- parse discussion ----------
       - name: Parse discussion for answers + decide next question
         id: decide
         uses: actions/github-script@v7
@@ -45,24 +40,25 @@ jobs:
           script: |
             const fs = require("fs");
 
-            const cfg = JSON.parse(fs.readFileSync(".github/templates/autoui/questions.json", "utf8"));
+            const cfg = JSON.parse(
+              fs.readFileSync(".github/templates/autoui/questions.json", "utf8")
+            );
+
             const discussion = context.payload.discussion;
 
-            // Fetch recent comments (GraphQL)
             const q = `
-              query($id: ID!, $n: Int!) {
+              query($id: ID!) {
                 node(id: $id) {
                   ... on Discussion {
-                    id
-                    title
                     body
-                    comments(first: $n) {
-                      nodes { body author { login } }
+                    comments(first: 50) {
+                      nodes { body }
                     }
                   }
                 }
               }`;
-            const data = await github.graphql(q, { id: discussion.node_id, n: 50 });
+
+            const data = await github.graphql(q, { id: discussion.node_id });
             const node = data.node;
 
             const textBlob = [
@@ -70,150 +66,130 @@ jobs:
               ...(node.comments.nodes || []).map(c => c.body || "")
             ].join("\n\n");
 
-            // Parse "key: value" answers
+            // support BOTH key:value and key=value
             const answers = {};
             for (const item of cfg.questions) {
-              const re = new RegExp(`(?:^|\\n)\\s*${item.key}\\s*:\\s*([^\\n]+)`, "i");
+              const re = new RegExp(
+                `(?:^|\\n)\\s*${item.key}\\s*(?:=|:)\\s*([^\\n]+)`,
+                "i"
+              );
               const m = textBlob.match(re);
               if (m && m[1]) answers[item.key] = m[1].trim();
             }
 
-            // Decide next unanswered
             const next = cfg.questions.find(q => !answers[q.key]);
 
-            // Status block for the comment
-            const lines = cfg.questions.map(q => {
-              const v = answers[q.key] ? `✅ ${answers[q.key]}` : "❌ (missing)";
-              return `- \`${q.key}\`: ${v}`;
-            });
+            const status = cfg.questions.map(q => {
+              return answers[q.key]
+                ? `- \`${q.key}\`: ✅ ${answers[q.key]}`
+                : `- \`${q.key}\`: ❌ (missing)`;
+            }).join("\n");
 
-            core.setOutput("answers_json", JSON.stringify(answers));
-            core.setOutput("status_block", lines.join("\n"));
-            core.setOutput("next_key", next ? next.key : "");
-            core.setOutput("next_question", next ? next.ask : "");
+            fs.writeFileSync(
+              "/tmp/autoui-answers.json",
+              JSON.stringify(answers, null, 2)
+            );
+
             core.setOutput("complete", next ? "false" : "true");
+            core.setOutput("next_question", next ? next.ask : "");
+            core.setOutput("status_block", status);
 
-      - name: Render reply comment from template
-        id: render_reply
+      # ---------- reply ----------
+      - name: Render reply comment
+        if: ${{ steps.decide.outputs.complete == 'false' }}
         shell: bash
         run: |
           set -euo pipefail
-
-          STATUS_BLOCK="${{ steps.decide.outputs.status_block }}"
-          NEXT_QUESTION="${{ steps.decide.outputs.next_question }}"
-
-          # log variables before rendering (as requested)
-          echo "STATUS_BLOCK:"
-          echo "$STATUS_BLOCK"
-          echo "NEXT_QUESTION:"
-          echo "$NEXT_QUESTION"
-
-          # export for envsubst
-          export STATUS_BLOCK NEXT_QUESTION
+          export STATUS_BLOCK="${{ steps.decide.outputs.status_block }}"
+          export NEXT_QUESTION="${{ steps.decide.outputs.next_question }}"
           envsubst < .github/templates/autoui/reply.md > /tmp/autoui-reply.md
-
-          echo "Rendered reply:"
           cat /tmp/autoui-reply.md
 
-      - name: Comment next question (if not complete)
+      - name: Comment next question
         if: ${{ steps.decide.outputs.complete == 'false' }}
         uses: actions/github-script@v7
         with:
           script: |
             const fs = require("fs");
             const body = fs.readFileSync("/tmp/autoui-reply.md", "utf8");
-            const discussionId = context.payload.discussion.node_id;
 
             await github.graphql(
-              `mutation($discussionId: ID!, $body: String!) {
-                addDiscussionComment(input: { discussionId: $discussionId, body: $body }) {
+              `mutation($id: ID!, $body: String!) {
+                addDiscussionComment(input: { discussionId: $id, body: $body }) {
                   comment { id }
                 }
               }`,
-              { discussionId, body }
+              { id: context.payload.discussion.node_id, body }
             );
 
-      - name: Setup Node (only when generating code)
+      # ---------- codegen ----------
+      - name: Setup Node
         if: ${{ steps.decide.outputs.complete == 'true' }}
         uses: actions/setup-node@v4
         with:
           node-version: 20
 
-      - name: Generate Vue + AntV files from templates (when complete)
+      - name: Generate Vue + AntV files
         if: ${{ steps.decide.outputs.complete == 'true' }}
         shell: bash
         run: |
           set -euo pipefail
 
-          answers='${{ steps.decide.outputs.answers_json }}'
-          echo "Answers JSON: $answers"
+          echo "Answers:"
+          cat /tmp/autoui-answers.json
 
-          # Extract with node (available after setup-node)
-          PRODUCT_NAME="$(node -p "JSON.parse(process.env.A).product_name || ''" --eval "" 2>/dev/null)" || true
-          export A="$answers"
-          PRODUCT_NAME="$(node -p "JSON.parse(process.env.A).product_name")"
-          OFFER_TYPE="$(node -p "JSON.parse(process.env.A).offer_type")"
-          DELIVERY_METHOD="$(node -p "JSON.parse(process.env.A).delivery_method")"
-          PLATFORMS="$(node -p "JSON.parse(process.env.A).platforms")"
-          PRICING_MODEL="$(node -p "JSON.parse(process.env.A).pricing_model")"
-          PRIMARY_CTA="$(node -p "JSON.parse(process.env.A).primary_cta")"
-
-          # log variables before rendering
-          echo "PRODUCT_NAME=$PRODUCT_NAME"
-          echo "OFFER_TYPE=$OFFER_TYPE"
-          echo "DELIVERY_METHOD=$DELIVERY_METHOD"
-          echo "PLATFORMS=$PLATFORMS"
-          echo "PRICING_MODEL=$PRICING_MODEL"
-          echo "PRIMARY_CTA=$PRIMARY_CTA"
+          PRODUCT_NAME="$(node -p "require('/tmp/autoui-answers.json').product_name")"
+          OFFER_TYPE="$(node -p "require('/tmp/autoui-answers.json').offer_type")"
+          DELIVERY_METHOD="$(node -p "require('/tmp/autoui-answers.json').delivery_method")"
+          PLATFORMS="$(node -p "require('/tmp/autoui-answers.json').platforms")"
+          PRICING_MODEL="$(node -p "require('/tmp/autoui-answers.json').pricing_model")"
+          PRIMARY_CTA="$(node -p "require('/tmp/autoui-answers.json').primary_cta")"
 
           export PRODUCT_NAME OFFER_TYPE DELIVERY_METHOD PLATFORMS PRICING_MODEL PRIMARY_CTA
 
           mkdir -p coming-soon/src/components
 
-          # Render Vue templates
           envsubst < .github/templates/autoui/Landing.vue.template > coming-soon/src/Landing.vue
           envsubst < .github/templates/autoui/StatsChart.vue.template > coming-soon/src/components/StatsChart.vue
 
-          # Ensure App.vue uses Landing
-          cp coming-soon/src/App.vue coming-soon/src/App.vue.bak || true
           cat > coming-soon/src/App.vue <<'EOF'
-          import Landing from "./Landing.vue";
-          export default Landing;
-          EOF
+import Landing from "./Landing.vue";
+export default Landing;
+EOF
 
-          # Add AntV dependency if missing
           cd coming-soon
-          if ! cat package.json | grep -q '"@antv/g2"'; then
+          if ! grep -q '"@antv/g2"' package.json; then
             npm install @antv/g2
           fi
-
           cd ..
-          git status --porcelain
 
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
-          git add coming-soon/src/Landing.vue coming-soon/src/components/StatsChart.vue coming-soon/src/App.vue coming-soon/package.json coming-soon/package-lock.json
+          git add coming-soon
           git commit -m "AutoUI: generate Vue landing + AntV chart" || true
           git push
 
+      # ---------- done ----------
       - name: Comment completion
         if: ${{ steps.decide.outputs.complete == 'true' }}
         uses: actions/github-script@v7
         with:
           script: |
-            const discussionId = context.payload.discussion.node_id;
             const body =
-             `AutoUI complete ✅
-             I generated:
-             - \`coming-soon/src/Landing.vue\`
-             - \`coming-soon/src/components/StatsChart.vue\` (AntV G2)
-             - updated \`coming-soon/src/App.vue\`
-             Your Pages deploy workflow should publish it on the next run.`;
+`AutoUI complete ✅
+
+Generated:
+- coming-soon/src/Landing.vue
+- coming-soon/src/components/StatsChart.vue
+- updated App.vue
+
+Pages deploy will publish on next run.`;
+
             await github.graphql(
-              `mutation($discussionId: ID!, $body: String!) {
-                addDiscussionComment(input: { discussionId: $discussionId, body: $body }) {
+              `mutation($id: ID!, $body: String!) {
+                addDiscussionComment(input: { discussionId: $id, body: $body }) {
                   comment { id }
                 }
               }`,
-              { discussionId, body }
+              { id: context.payload.discussion.node_id, body }
             );
