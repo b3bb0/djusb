@@ -1,15 +1,13 @@
-name: Deploy Coming Soon to GitHub Pages
+
+name: Bootstrap (if missing) + Build + Deploy
 
 on:
   push:
     branches: ["main"]
-    paths:
-      - "coming-soon/**"
-      - ".github/workflows/deploy-pages.yml"
   workflow_dispatch:
 
 permissions:
-  contents: read
+  contents: write
   pages: write
   id-token: write
 
@@ -23,12 +21,58 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      # 1) Node (NO cache yet)
       - uses: actions/setup-node@v4
         with:
           node-version: 20
-          cache: "npm"
+
+      # 2) Bootstrap if missing
+      - name: Bootstrap coming-soon if missing
+        run: |
+          if [ ! -d "coming-soon" ]; then
+            npm create vue@latest coming-soon -- --default --packageManager npm
+
+            cat > coming-soon/src/App.vue <<'EOF'
+            <template>
+              <main class="wrap">
+                <section class="card">
+                  <p class="badge">Coming Soon</p>
+                  <h1>A better way to do X</h1>
+                  <p class="sub">We’re building something new.</p>
+                </section>
+              </main>
+            </template>
+            <style scoped>
+            .wrap{min-height:100vh;display:grid;place-items:center;padding:24px;font-family:system-ui}
+            .card{border:1px solid #e6e6e6;border-radius:18px;padding:28px}
+            .badge{display:inline-block;padding:6px 10px;border:1px solid #ddd;border-radius:999px;font-size:12px}
+            </style>
+            EOF
+
+            cat > coming-soon/vite.config.js <<'EOF'
+            import { defineConfig } from "vite";
+            import vue from "@vitejs/plugin-vue";
+            export default defineConfig({
+              plugins: [vue()],
+              base: process.env.BASE_PATH ?? "/",
+            });
+            EOF
+
+            git config user.name "github-actions[bot]"
+            git config user.email "github-actions[bot]@users.noreply.github.com"
+            git add coming-soon
+            git commit -m "Bootstrap Vue coming-soon site" || true
+            git push
+          fi
+
+      # 3) Now the lockfile exists -> enable npm cache (optional)
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
           cache-dependency-path: coming-soon/package-lock.json
 
+      # 4) Install + build
       - name: Install
         working-directory: coming-soon
         run: npm ci
@@ -39,11 +83,9 @@ jobs:
           BASE_PATH: /${{ github.event.repository.name }}/
         run: npm run build
 
-      - name: Configure Pages
-        uses: actions/configure-pages@v5
-
-      - name: Upload artifact
-        uses: actions/upload-pages-artifact@v3
+      # 5) Deploy to Pages
+      - uses: actions/configure-pages@v5
+      - uses: actions/upload-pages-artifact@v3
         with:
           path: coming-soon/dist
 
