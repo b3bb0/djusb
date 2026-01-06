@@ -213,7 +213,7 @@ jobs:
           export VITE_BASE="/beta/d-${DNUM}/"
 
           cd coming-soon
-          npm ci || npm install
+          npm i
           npm run build
           test -d dist
 
