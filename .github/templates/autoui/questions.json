@@ -86,14 +86,6 @@
           ]
         },
         {
-          "key": "chart_lib",
-          "ask": "Chart library?",
-          "options": [
-            "@antv/g2",
-            "G2Plot"
-          ]
-        },
-        {
           "key": "modal_usage",
           "ask": "Modal usage?",
           "options": [
