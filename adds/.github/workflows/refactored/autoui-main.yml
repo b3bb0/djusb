@@ -1,0 +1,15 @@
+
+name: AutoUI Main
+
+on:
+  issues:
+    types: [opened, edited, labeled]
+  issue_comment:
+    types: [created, edited]
+
+jobs:
+  run_autoui:
+    uses: ./.github/workflows/refactored/autoui-reusable.yml
+    with:
+      issue_number: ${{ github.event.issue.number }}
+    secrets: inherit

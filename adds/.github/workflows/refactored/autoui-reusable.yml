@@ -1,0 +1,146 @@
+
+name: AutoUI Reusable
+
+on:
+  workflow_call:
+    inputs:
+      issue_number:
+        required: true
+        type: number
+
+permissions:
+  contents: write
+  pages: write
+  id-token: write
+  issues: write
+  pull-requests: write
+
+jobs:
+  decide:
+    runs-on: ubuntu-latest
+    outputs:
+      has_label: ${{ steps.parse.outputs.has_label }}
+      complete: ${{ steps.parse.outputs.complete }}
+      issue_number: ${{ steps.parse.outputs.issue_number }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - id: parse
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const script = require("./.github/scripts/parse-issue.js");
+            await script({ github, context, core, issueNumber: ${{ inputs.issue_number }} });
+
+  ask_question:
+    needs: decide
+    if: "${{ needs.decide.outputs.has_label == 'true' && needs.decide.outputs.complete == 'false' }}"
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Render and comment
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const issue_number = ${{ needs.decide.outputs.issue_number }};
+            const status_block = `${{ needs.decide.outputs.status_block }}`;
+            const next_question = `${{ needs.decide.outputs.next_question }}`;
+            const body = `## AutoUI Status\n\n${status_block}\n\n### Next Question\n\n${next_question}`;
+            await github.rest.issues.createComment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: issue_number,
+              body: body,
+            });
+
+  build_and_deploy_pr:
+    needs: decide
+    if: "${{ needs.decide.outputs.has_label == 'true' && needs.decide.outputs.complete == 'true' }}"
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Master
+        uses: actions/checkout@v4
+        with:
+          ref: 'master'
+
+      - name: Setup Git User
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+
+      - name: Handle Branch
+        id: handle_branch
+        run: |
+          BRANCH_NAME="ui-bot/issue-${{ needs.decide.outputs.issue_number }}"
+          echo "branch_name=$BRANCH_NAME" >> $GITHUB_OUTPUT
+          if git rev-parse --verify "origin/$BRANCH_NAME"; then
+            echo "Branch exists. Pulling and updating from master."
+            git checkout "$BRANCH_NAME"
+            git pull origin "$BRANCH_NAME"
+            git merge origin/master --no-ff -m "Merge master"
+          else
+            echo "Branch does not exist. Creating from master."
+            git checkout -b "$BRANCH_NAME"
+          fi
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Generate Vue Files
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const script = require("./.github/scripts/generate-vue-files.js");
+            await script();
+
+      - name: Commit and Push changes
+        run: |
+          git add .
+          git commit -m "AutoUI: Update files for issue #${{ needs.decide.outputs.issue_number }}" || echo "No changes to commit"
+          git push origin ${{ steps.handle_branch.outputs.branch_name }} --force
+
+      - name: Install and Build
+        run: |
+          cd coming-soon
+          npm ci || npm install
+          npm run build
+        env:
+          VITE_BASE: /beta/issue-${{ needs.decide.outputs.issue_number }}/
+
+      - name: Upload Pages artifact
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: coming-soon/dist
+
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4
+
+      - name: Create Draft PR and Comment
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const issue_number = ${{ needs.decide.outputs.issue_number }};
+            const branch_name = "${{ steps.handle_branch.outputs.branch_name }}";
+            const preview_url = "${{ steps.deployment.outputs.page_url }}";
+
+            const { data: pr } = await github.rest.pulls.create({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              title: `AutoUI: UI from issue #${issue_number}`,
+              head: branch_name,
+              base: "master",
+              body: `Resolves #${issue_number}.\n\n**Preview:** ${preview_url}`,
+              draft: true,
+            });
+
+            const body = `✅ **AutoUI Complete!**\n\n- **Preview:** ${preview_url}\n- **Draft PR:** #${pr.number}`;
+            await github.rest.issues.createComment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: issue_number,
+              body: body,
+            });

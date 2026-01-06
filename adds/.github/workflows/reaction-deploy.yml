@@ -1,0 +1,107 @@
+name: Deploy on Reaction 🚀
+
+on:
+  issue_comment:
+    types: [created, edited]
+
+permissions:
+  contents: write
+  pages: write
+  id-token: write
+  issues: write
+  pull-requests: write
+
+concurrency:
+  group: "pages"
+  cancel-in-progress: true
+
+jobs:
+  react_and_deploy:
+    if: "contains(github.event.comment.body, '🚀') && github.event.comment.user.login != 'github-actions[bot]' && contains(github.event.issue.labels.*.name, 'AutoUI')"
+    runs-on: ubuntu-latest
+    steps:
+      - name: Add 👀 reaction
+        uses: actions/github-script@v7
+        with:
+          script: |
+            await github.rest.reactions.createForIssueComment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              comment_id: context.payload.comment.id,
+              content: 'eyes'
+            });
+
+      - name: Checkout production branch
+        uses: actions/checkout@v4
+        with:
+          ref: 'production'
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: coming-soon/package-lock.json
+
+      - name: Install dependencies
+        working-directory: coming-soon
+        run: npm ci || npm install
+
+      - name: Build project
+        working-directory: coming-soon
+        env:
+          VITE_BASE: /beta/issue-${{ github.event.issue.number }}/
+        run: npm run build
+
+      - name: Upload Pages artifact
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: coming-soon/dist
+
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4
+
+      - name: Add ✅ reaction
+        if: success()
+        uses: actions/github-script@v7
+        with:
+          script: |
+            await github.rest.reactions.createForIssueComment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              comment_id: context.payload.comment.id,
+              content: '+1'
+            });
+
+      - name: Add ❌ reaction on failure
+        if: failure()
+        uses: actions/github-script@v7
+        with:
+          script: |
+            await github.rest.reactions.createForIssueComment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              comment_id: context.payload.comment.id,
+              content: '-1'
+            });
+
+      - name: Remove 👀 reaction
+        if: always()
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const reactions = await github.rest.reactions.listForIssueComment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              comment_id: context.payload.comment.id,
+            });
+            const eyeReaction = reactions.data.find(reaction => reaction.content === 'eyes' && reaction.user.login === 'github-actions[bot]');
+            if (eyeReaction) {
+              await github.rest.reactions.deleteForIssueComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                comment_id: context.payload.comment.id,
+                reaction_id: eyeReaction.id,
+              });
+            }
