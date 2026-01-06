@@ -215,6 +215,8 @@ jobs:
           cd coming-soon
           npm i
           npm run build
+          ls -lah
+          ls -lah ../
           test -d dist
 
       - name: Deploy preview to gh-pages/beta/d-xxxx
